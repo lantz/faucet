@@ -303,10 +303,10 @@ class FaucetTestBase(unittest.TestCase):
     def _wait_load(self, load_retries=120):
         for _ in range(load_retries):
             load = os.getloadavg()[0]
-            time.sleep(random.randint(1, 7))
             if load < self.max_test_load:
                 return
             output('load average too high %f, waiting' % load)
+            time.sleep(random.randint(1, 7))
         self.fail('load average %f consistently too high' % load)
 
     def _allocate_config_ports(self):
@@ -1232,8 +1232,11 @@ dbs:
             time.sleep(1)
         return False
 
+    _prometheus_cache = ''
+
     def scrape_prometheus_var(self, var, labels=None, any_labels=False, default=None,
-                              dpid=True, multiple=False, controller='faucet', retries=3):
+                              dpid=True, multiple=False, controller='faucet', retries=3,
+                              cache=False):
         if dpid:
             if dpid is True:
                 dpid = int(self.dpid)
@@ -1255,7 +1258,15 @@ dbs:
         var_re = re.compile(r'^%s%s$' % (var, label_values_re))
         for _ in range(retries):
             results = []
-            prom_lines = self.scrape_prometheus(controller, var=var)
+            hit = False
+            if cache and var in ''.join(self._prometheus_cache):
+                prom_lines = self._prometheus_cache
+                hit = True
+            else:
+                prom_lines = self.scrape_prometheus(controller)
+                self._prometheus_cache = prom_lines
+            prom_lines = [
+                prom_line for prom_line in prom_lines if prom_line.startswith(var)]
             for prom_line in prom_lines:
                 prom_var, prom_val = self.parse_prom_var(prom_line)
                 if var_re.match(prom_var):
@@ -1266,7 +1277,8 @@ dbs:
                 if multiple:
                     return results
                 return results[0][1]
-            time.sleep(1)
+            if not hit:
+                time.sleep(1)
         return default
 
     def gauge_smoke_test(self):
@@ -2026,9 +2038,9 @@ dbs:
         return self.wait_for_prometheus_var(
             'dp_status', expected_status, any_labels=True, controller=controller, default=None, timeout=timeout)
 
-    def _get_tableid(self, name):
+    def _get_tableid(self, name, retries=1, cache=True):
         return self.scrape_prometheus_var(
-            'faucet_config_table_names', {'table_name': name})
+            'faucet_config_table_names', {'table_name': name}, retries=retries, cache=cache)
 
     def quiet_commands(self, host, commands):
         for command in commands:
@@ -2036,16 +2048,18 @@ dbs:
             self.assertEqual('', result, msg='%s: %s' % (command, result))
 
     def _config_tableids(self):
-        self._PORT_ACL_TABLE = self._get_tableid('port_acl')
+        # Always-there tables
+        self._ETH_SRC_TABLE = self._get_tableid('eth_src', retries=30, cache=False)
+        self._ETH_DST_TABLE = self._get_tableid('eth_dst')
         self._VLAN_TABLE = self._get_tableid('vlan')
+        self._FLOOD_TABLE = self._get_tableid('flood')
+        # Sometimes-there tables
+        self._PORT_ACL_TABLE = self._get_tableid('port_acl')
         self._VLAN_ACL_TABLE = self._get_tableid('vlan_acl')
-        self._ETH_SRC_TABLE = self._get_tableid('eth_src')
         self._IPV4_FIB_TABLE = self._get_tableid('ipv4_fib')
         self._IPV6_FIB_TABLE = self._get_tableid('ipv6_fib')
         self._VIP_TABLE = self._get_tableid('vip')
         self._ETH_DST_HAIRPIN_TABLE = self._get_tableid('eth_dst_hairpin')
-        self._ETH_DST_TABLE = self._get_tableid('eth_dst')
-        self._FLOOD_TABLE = self._get_tableid('flood')
 
     def _dp_ports(self):
         return list(sorted(self.port_map.values()))
