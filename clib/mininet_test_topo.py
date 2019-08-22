@@ -15,7 +15,7 @@ import netifaces
 from mininet.log import output, warn
 from mininet.topo import Topo
 from mininet.node import Controller
-from mininet.node import CPULimitedHost
+from mininet.node import Host as HostBase
 from mininet.node import OVSSwitch
 from mininet.link import TCIntf, Link
 
@@ -52,7 +52,7 @@ class FaucetLink(Link):
                       params1=params, params2=params)
 
 
-class FaucetHost(CPULimitedHost):
+class FaucetHost(HostBase):
     """Base Mininet Host class, for Mininet-based tests."""
 
 
